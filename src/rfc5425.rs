@@ -1,7 +1,9 @@
+use crate::consts::{level_to_severity, Facility, NILVALUE};
 use crate::{Formattable, SyslogAppenderProtocol};
-use log::Record;
-use crate::consts::{level_to_severity, NILVALUE, Facility};
 use chrono::SecondsFormat;
+use log::Record;
+use log4rs::encode::writer::simple::SimpleWriter;
+use std::error::Error;
 
 #[derive(Debug)]
 pub struct Format {
@@ -19,7 +21,7 @@ impl Format {
             hostname: "".to_string(),
             app_name: "".to_string(),
             proc_id: format!("{}", std::process::id()),
-            bom: false
+            bom: false,
         }
     }
 
@@ -50,7 +52,12 @@ impl Format {
 }
 
 impl Formattable for Format {
-    fn format<'a>(&self, record: &Record<'a>, protocol: &SyslogAppenderProtocol) -> String {
+    fn format<'a>(
+        &self,
+        record: &Record<'a>,
+        protocol: &SyslogAppenderProtocol,
+        encoder: &Box<dyn log4rs::encode::Encode>,
+    ) -> Result<String, Box<dyn Error + Sync + Send>> {
         let priority = self.facility as u8 | level_to_severity(record.level());
         let msg_id = 0;
         let struct_data = NILVALUE;
@@ -62,26 +69,27 @@ impl Formattable for Format {
             bom_str = "";
         }
 
-        let msg = format!("<{}>{} {} {} {} {} {} {} {}{}\n",
-                          priority,
-                          1,
-                          chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, false),
-                          self.hostname,
-                          self.app_name,
-                          self.proc_id,
-                          msg_id,
-                          struct_data,
-                          bom_str,
-                          record.args()
+        let mut buf: Vec<u8> = Vec::new();
+        encoder.encode(&mut SimpleWriter(&mut buf), record)?;
+        let msg = std::str::from_utf8(&buf).unwrap();
+
+        let msg = format!(
+            "<{}>{} {} {} {} {} {} {} {}{}\n",
+            priority,
+            1,
+            chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, false),
+            self.hostname,
+            self.app_name,
+            self.proc_id,
+            msg_id,
+            struct_data,
+            bom_str,
+            msg
         );
 
-      match protocol {
-          SyslogAppenderProtocol::TCP => {
-              format!("{} {}", msg.len(), msg)
-          },
-          SyslogAppenderProtocol::UDP => {
-              msg
-          }
-      }
+        match protocol {
+            SyslogAppenderProtocol::TCP => Ok(format!("{} {}", msg.len(), msg)),
+            SyslogAppenderProtocol::UDP => Ok(msg),
+        }
     }
 }
