@@ -10,5 +10,3 @@ edition = "2018"
 chrono = { version = "0.4.15", features = ["serde"] }
 log = "0.4.11"
 log4rs = { version = "0.13.0", default_features = false, features = ["pattern_encoder"] }
-serde = "1.0.116"
-serde_derive = "1.0.116"
