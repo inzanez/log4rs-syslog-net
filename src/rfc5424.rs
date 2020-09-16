@@ -1,4 +1,4 @@
-use crate::Formattable;
+use crate::{Formattable, SyslogAppenderProtocol};
 use log::Record;
 use crate::consts::{level_to_severity, NILVALUE, Facility};
 
@@ -48,7 +48,7 @@ impl Format {
     }
 }
 impl Formattable for Format {
-    fn format<'a>(&self, record: &Record<'a>) -> String {
+    fn format<'a>(&self, record: &Record<'a>, _protocol: &SyslogAppenderProtocol) -> String {
         let priority = self.facility as u8 | level_to_severity(record.level());
         let msg_id = 0;
         let struct_data = NILVALUE;

@@ -1,4 +1,4 @@
-use crate::Formattable;
+use crate::{Formattable, SyslogAppenderProtocol};
 use log::Record;
 use crate::consts::{level_to_severity, NILVALUE, Facility};
 use chrono::SecondsFormat;
@@ -50,16 +50,18 @@ impl Format {
 }
 
 impl Formattable for Format {
-    fn format<'a>(&self, record: &Record<'a>) -> String {
+    fn format<'a>(&self, record: &Record<'a>, protocol: &SyslogAppenderProtocol) -> String {
         let priority = self.facility as u8 | level_to_severity(record.level());
         let msg_id = 0;
         let struct_data = NILVALUE;
         let bom_str;
+
         if self.bom {
             bom_str = "\u{EF}\u{BB}\u{BF}";
         } else {
             bom_str = "";
         }
+
         let msg = format!("<{}>{} {} {} {} {} {} {} {}{}\n",
                           priority,
                           1,
@@ -72,8 +74,14 @@ impl Formattable for Format {
                           bom_str,
                           record.args()
         );
-        let msg = format!("{} {}", msg.len(), msg);
 
-        msg
+      match protocol {
+          SyslogAppenderProtocol::TCP => {
+              format!("{} {}", msg.len(), msg)
+          },
+          SyslogAppenderProtocol::UDP => {
+              msg
+          }
+      }
     }
 }

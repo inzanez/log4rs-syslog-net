@@ -4,14 +4,14 @@ use log4rs::append::Append;
 use std::error::Error;
 use log::Record;
 use std::io;
-use std::io::{ErrorKind, Write};
+use std::io::Write;
 
 pub mod consts;
 pub mod plain;
 pub mod rfc5424;
 pub mod rfc5425;
 
-const DEFAULT_PROTOCOL: &'static str = "udp";
+const DEFAULT_PROTOCOL: SyslogAppenderProtocol = SyslogAppenderProtocol::UDP;
 const DEFAULT_PORT: u16 = 514;
 const DEFAULT_ADDRESS: &'static str = "localhost:514";
 const DEFAULT_MAX_LENGTH: usize = 2048;
@@ -19,13 +19,13 @@ const DEFAULT_MAX_LENGTH: usize = 2048;
 /// Writers to send syslog to UDP or TCP
 #[derive(Debug)]
 enum SyslogWriter {
-	Udp(Box<UdpSocket>, SocketAddr),
+	Udp(UdpSocket, SocketAddr),
 	Tcp(Mutex<TcpStream>)
 }
 
 /// Trait that allows to format a given message.
 trait Formattable {
-	fn format(&self, rec: &Record) -> String;
+	fn format(&self, rec: &Record, protocol: &SyslogAppenderProtocol) -> String;
 }
 
 /// Syslog message format.
@@ -40,13 +40,19 @@ pub enum MessageFormat {
 }
 
 impl Formattable for MessageFormat {
-	fn format<'a>(&self, rec: &Record<'a>) -> String {
+	fn format<'a>(&self, rec: &Record<'a>, protocol: &SyslogAppenderProtocol) -> String {
 		match self {
-			MessageFormat::Plain(ref fmt) => fmt.format(&rec),
-			MessageFormat::Rfc5424(ref fmt) => fmt.format(&rec),
-			MessageFormat::Rfc5425(ref fmt) => fmt.format(&rec),
+			MessageFormat::Plain(ref fmt) => fmt.format(&rec, protocol),
+			MessageFormat::Rfc5424(ref fmt) => fmt.format(&rec, protocol),
+			MessageFormat::Rfc5425(ref fmt) => fmt.format(&rec, protocol),
 		}
 	}
+}
+
+#[derive(Debug)]
+pub enum SyslogAppenderProtocol {
+	UDP,
+	TCP,
 }
 
 /// Appender that sends log messages to syslog.
@@ -54,13 +60,14 @@ impl Formattable for MessageFormat {
 pub struct SyslogAppender {
 	writer: SyslogWriter,
 	msg_format: MessageFormat,
-	max_len: usize
+	max_len: usize,
+	protocol: SyslogAppenderProtocol,
 }
 
 impl Append for SyslogAppender {
 	fn append<'a>(&self, record: &Record<'a>) -> Result<(), Box<dyn Error + Sync + Send>> {
 		// Format the message, which will be different based on the chosen MsgFormat
-		let msg = self.msg_format.format(&record);
+		let msg = self.msg_format.format(&record, &self.protocol);
 
 		let mut bytes = msg.as_bytes();
 
@@ -88,7 +95,7 @@ impl Append for SyslogAppender {
 
 /// Builder for `SyslogAppender`.
 pub struct SyslogAppenderBuilder {
-	protocol: String,
+	protocol: SyslogAppenderProtocol,
 	addrs: String,
 	max_len: usize,
 	msg_format: MessageFormat
@@ -98,7 +105,7 @@ impl SyslogAppenderBuilder {
 	/// Creates a `SyslogAppenderBuilder` for constructing new `SyslogAppender`.
 	pub fn new() -> SyslogAppenderBuilder {
 		SyslogAppenderBuilder {
-			protocol: DEFAULT_PROTOCOL.to_string(),
+			protocol: DEFAULT_PROTOCOL,
 			addrs: DEFAULT_ADDRESS.to_string(),
 			max_len: DEFAULT_MAX_LENGTH,
 			msg_format: MessageFormat::Plain(plain::Format{}),
@@ -108,8 +115,8 @@ impl SyslogAppenderBuilder {
 	/// Sets network protocol for accessing syslog.
 	///
 	/// Defaults to "udp".
-	pub fn protocol(&mut self, p: String) -> &mut SyslogAppenderBuilder {
-		self.protocol = p.to_lowercase();
+	pub fn protocol(&mut self, p: SyslogAppenderProtocol) -> &mut SyslogAppenderBuilder {
+		self.protocol = p;
 		self
 	}
 
@@ -142,17 +149,21 @@ impl SyslogAppenderBuilder {
 	pub fn finalize(mut self) -> io::Result<SyslogAppender> {
 		norm_addrs(&mut self.addrs);
 		let writer;
-		if self.protocol == "tcp" {
-		    writer = tcp_writer(self.addrs.as_str());
-		} else if self.protocol == "udp" {
-		    writer = udp_writer(self.addrs.as_str());
-		} else {
-		   return Err(io::Error::new(ErrorKind::Other, format!("Unsupported syslog transport protocol {}", self.protocol).as_str()));
+
+		match self.protocol {
+			SyslogAppenderProtocol::UDP => {
+				writer = udp_writer(self.addrs.as_str());
+			},
+			SyslogAppenderProtocol::TCP => {
+				writer = tcp_writer(self.addrs.as_str());
+			},
 		}
+
 		let appender = SyslogAppender {
 			writer,
 			msg_format: self.msg_format,
-			max_len: self.max_len
+			max_len: self.max_len,
+			protocol: self.protocol,
 		};
 
 		Ok(appender)
@@ -171,7 +182,7 @@ fn norm_addrs(addrs: &mut String) {
 fn udp_writer<T: ToSocketAddrs>(rem: T) -> SyslogWriter {
 	let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
 	let rem_addrs = rem.to_socket_addrs().unwrap().next().unwrap();
-	SyslogWriter::Udp(Box::new(socket), rem_addrs)
+	SyslogWriter::Udp(socket, rem_addrs)
 }
 
 /// Creates writer for TCP protocol based on external host and port
