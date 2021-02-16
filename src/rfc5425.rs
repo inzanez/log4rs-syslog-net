@@ -1,5 +1,4 @@
 use crate::consts::{level_to_severity, Facility, NILVALUE};
-use crate::{Formattable, SyslogAppenderProtocol};
 use chrono::SecondsFormat;
 use log::Record;
 use log4rs::encode::writer::simple::SimpleWriter;
@@ -11,7 +10,7 @@ pub struct Format {
     hostname: String,
     app_name: String,
     proc_id: String,
-    bom: bool,
+    encoder: Box<dyn log4rs::encode::Encode>,
 }
 
 impl Format {
@@ -21,7 +20,7 @@ impl Format {
             hostname: "".to_string(),
             app_name: "".to_string(),
             proc_id: format!("{}", std::process::id()),
-            bom: false,
+            encoder: Box::new(log4rs::encode::pattern::PatternEncoder::default()),
         }
     }
 
@@ -44,37 +43,24 @@ impl Format {
         self.proc_id = proc_id.into();
         self
     }
-
-    pub fn bom(mut self, bom: bool) -> Self {
-        self.bom = bom;
-        self
-    }
 }
 
-impl Formattable for Format {
-    fn format<'a>(
+impl log4rs::encode::Encode for Format {
+    fn encode(
         &self,
-        record: &Record<'a>,
-        protocol: &SyslogAppenderProtocol,
-        encoder: &Box<dyn log4rs::encode::Encode>,
-    ) -> Result<String, Box<dyn Error + Sync + Send>> {
+        w: &mut dyn log4rs::encode::Write,
+        record: &Record<'_>,
+    ) -> Result<(), Box<dyn Error + Sync + Send>> {
         let priority = self.facility as u8 | level_to_severity(record.level());
         let msg_id = 0;
         let struct_data = NILVALUE;
-        let bom_str;
-
-        if self.bom {
-            bom_str = "\u{EF}\u{BB}\u{BF}";
-        } else {
-            bom_str = "";
-        }
 
         let mut buf: Vec<u8> = Vec::new();
-        encoder.encode(&mut SimpleWriter(&mut buf), record)?;
+        self.encoder.encode(&mut SimpleWriter(&mut buf), record)?;
         let msg = std::str::from_utf8(&buf).unwrap();
 
         let msg = format!(
-            "<{}>{} {} {} {} {} {} {} {}{}\n",
+            "<{}>{} {} {} {} {} {} {}{}\n",
             priority,
             1,
             chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, false),
@@ -83,13 +69,10 @@ impl Formattable for Format {
             self.proc_id,
             msg_id,
             struct_data,
-            bom_str,
             msg
         );
 
-        match protocol {
-            SyslogAppenderProtocol::TCP => Ok(format!("{} {}", msg.len(), msg)),
-            SyslogAppenderProtocol::UDP => Ok(msg),
-        }
+        w.write_all(msg.as_bytes())?;
+        Ok(())
     }
 }

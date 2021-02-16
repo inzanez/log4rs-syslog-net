@@ -4,7 +4,7 @@ use log::Level;
 use std::io;
 
 /// The syslog `NILVALUE` constant.
-pub const NILVALUE: &'static str = "-";
+pub const NILVALUE: &str = "-";
 
 /// Facilities according to RFC 5424
 #[derive(Debug, Copy, Clone)]
@@ -93,7 +93,7 @@ pub fn level_to_severity(lvl: Level) -> u8 {
 }
 
 #[doc(hidden)]
-pub fn parse_facility(f: &String) -> Result<Facility, io::Error> {
+pub fn parse_facility(f: &str) -> Result<Facility, io::Error> {
     let res = match f.to_lowercase().as_str() {
         "kern" => Facility::KERN,
         "user" => Facility::USER,

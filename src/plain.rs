@@ -1,26 +1,24 @@
 use crate::consts::{level_to_severity, Facility};
-use crate::{Formattable, SyslogAppenderProtocol};
 use log::Record;
 use log4rs::encode::writer::simple::SimpleWriter;
 use std::error::Error;
 
 #[derive(Debug)]
-pub struct Format {}
+pub struct Format(pub Box<dyn log4rs::encode::Encode>);
 
-impl Formattable for Format {
-    fn format<'a>(
+impl log4rs::encode::Encode for Format {
+    fn encode(
         &self,
-        record: &Record<'a>,
-        _protocol: &SyslogAppenderProtocol,
-        encoder: &Box<dyn log4rs::encode::Encode>,
-    ) -> Result<String, Box<dyn Error + Sync + Send>> {
+        w: &mut dyn log4rs::encode::Write,
+        record: &Record<'_>,
+    ) -> Result<(), Box<dyn Error + Sync + Send>> {
         let mut buf: Vec<u8> = Vec::new();
-        encoder.encode(&mut SimpleWriter(&mut buf), record)?;
-        let msg = std::str::from_utf8(&buf).unwrap();
+        self.0.encode(&mut SimpleWriter(&mut buf), record)?;
+        let msg = String::from_utf8_lossy(&buf);
 
         let priority = Facility::USER as u8 | level_to_severity(record.level());
         let msg = format!("<{}> {}\n", priority, msg);
-
-        Ok(msg)
+        w.write_all(msg.as_bytes())?;
+        Ok(())
     }
 }
