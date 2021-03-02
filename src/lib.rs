@@ -1,37 +1,19 @@
 use log::Record;
 use log4rs::append::Append;
+use log4rs::encode::Encode;
 use std::error::Error;
-use std::io;
 use std::io::Write;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
-use std::sync::Mutex;
+use std::net::TcpStream;
+use std::sync::mpsc::{sync_channel, SyncSender};
+use std::sync::Arc;
 
 pub mod consts;
 pub mod plain;
 pub mod rfc5424;
 pub mod rfc5425;
 
-const DEFAULT_PROTOCOL: SyslogAppenderProtocol = SyslogAppenderProtocol::UDP;
 const DEFAULT_PORT: u16 = 514;
-const DEFAULT_ADDRESS: &'static str = "localhost:514";
-const DEFAULT_MAX_LENGTH: usize = 2048;
-
-/// Writers to send syslog to UDP or TCP
-#[derive(Debug)]
-enum SyslogWriter {
-    Udp(UdpSocket, SocketAddr),
-    Tcp(Mutex<TcpStream>),
-}
-
-/// Trait that allows to format a given message.
-trait Formattable {
-    fn format(
-        &self,
-        rec: &Record,
-        protocol: &SyslogAppenderProtocol,
-        encoder: &Box<dyn log4rs::encode::Encode>,
-    ) -> Result<String, Box<dyn Error + Sync + Send>>;
-}
+const DEFAULT_ADDRESS: &str = "localhost:514";
 
 /// Syslog message format.
 #[derive(Debug)]
@@ -44,62 +26,37 @@ pub enum MessageFormat {
     Rfc5425(rfc5425::Format),
 }
 
-impl Formattable for MessageFormat {
-    fn format<'a>(
+impl MessageFormat {
+    fn format(
         &self,
-        rec: &Record<'a>,
-        protocol: &SyslogAppenderProtocol,
-        encoder: &Box<dyn log4rs::encode::Encode>,
-    ) -> Result<String, Box<dyn Error + Sync + Send>> {
+        w: &mut dyn std::io::Write,
+        rec: &Record<'_>,
+    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+        let mut w = log4rs::encode::writer::simple::SimpleWriter(w);
         match self {
-            MessageFormat::Plain(ref fmt) => fmt.format(&rec, protocol, encoder),
-            MessageFormat::Rfc5424(ref fmt) => fmt.format(&rec, protocol, encoder),
-            MessageFormat::Rfc5425(ref fmt) => fmt.format(&rec, protocol, encoder),
+            MessageFormat::Plain(fmt) => fmt.encode(&mut w, &rec),
+            MessageFormat::Rfc5424(fmt) => fmt.encode(&mut w, &rec),
+            MessageFormat::Rfc5425(fmt) => fmt.encode(&mut w, &rec),
         }
     }
-}
-
-#[derive(Debug)]
-pub enum SyslogAppenderProtocol {
-    UDP,
-    TCP,
 }
 
 /// Appender that sends log messages to syslog.
 #[derive(Debug)]
 pub struct SyslogAppender {
-    writer: SyslogWriter,
+    addr: String,
+    writer: SyncSender<Vec<u8>>,
     msg_format: MessageFormat,
-    max_len: usize,
-    protocol: SyslogAppenderProtocol,
-    encoder: Box<dyn log4rs::encode::Encode>,
 }
 
-impl Append for SyslogAppender {
-    fn append<'a>(&self, record: &Record<'a>) -> Result<(), Box<dyn Error + Sync + Send>> {
+impl<'a> Append for SyslogAppender {
+    fn append(&self, record: &Record<'_>) -> Result<(), Box<dyn Error + Sync + Send>> {
+        let mut v = vec![];
         // Format the message, which will be different based on the chosen MsgFormat
-        let msg = self
-            .msg_format
-            .format(&record, &self.protocol, &self.encoder)?;
+        self.msg_format.format(&mut v, &record)?;
 
-        let mut bytes = msg.as_bytes();
+        self.writer.send(v)?;
 
-        // Check for message length. If it exceeds DEFAULT_MAX_LENGTH, truncate.
-        // Per syslog specification, a receiver may discard messages exceeding that limit.
-        if bytes.len() > DEFAULT_MAX_LENGTH {
-            bytes = &bytes[0..DEFAULT_MAX_LENGTH];
-        }
-
-        // Write to UDP or TCP depending on the configuration
-        match self.writer {
-            SyslogWriter::Udp(ref socket, ref addrs) => {
-                socket.send_to(&bytes, addrs)?;
-            }
-            SyslogWriter::Tcp(ref stream_w) => {
-                let mut stream = stream_w.lock().unwrap();
-                stream.write(bytes)?;
-            }
-        };
         Ok(())
     }
 
@@ -108,31 +65,19 @@ impl Append for SyslogAppender {
 
 /// Builder for `SyslogAppender`.
 pub struct SyslogAppenderBuilder {
-    protocol: SyslogAppenderProtocol,
     addrs: String,
-    max_len: usize,
     msg_format: MessageFormat,
-    encoder: Box<dyn log4rs::encode::Encode>,
 }
 
 impl SyslogAppenderBuilder {
     /// Creates a `SyslogAppenderBuilder` for constructing new `SyslogAppender`.
     pub fn new() -> SyslogAppenderBuilder {
         SyslogAppenderBuilder {
-            protocol: DEFAULT_PROTOCOL,
             addrs: DEFAULT_ADDRESS.to_string(),
-            max_len: DEFAULT_MAX_LENGTH,
-            msg_format: MessageFormat::Plain(plain::Format {}),
-            encoder: Box::new(log4rs::encode::pattern::PatternEncoder::default()),
+            msg_format: MessageFormat::Plain(plain::Format(Arc::new(
+                log4rs::encode::pattern::PatternEncoder::default(),
+            ))),
         }
-    }
-
-    /// Sets network protocol for accessing syslog.
-    ///
-    /// Defaults to "udp".
-    pub fn protocol(mut self, p: SyslogAppenderProtocol) -> Self {
-        self.protocol = p;
-        self
     }
 
     /// Sets network address of syslog server.
@@ -151,64 +96,30 @@ impl SyslogAppenderBuilder {
         self
     }
 
-    /// Sets the maximum length of a message in bytes. If a log message exceedes
-    /// this size, it's truncated with not respect to UTF char boundaries.
-    ///
-    /// Defaults to 2048.
-    pub fn max_len(mut self, ml: usize) -> Self {
-        self.max_len = ml;
-        self
-    }
-
-    /// Sets the encoder used to encode the message
-    ///
-    pub fn encoder(mut self, encoder: Box<dyn log4rs::encode::Encode>) -> Self {
-        self.encoder = encoder;
-        self
-    }
     /// Produces a `SyslogAppender` with parameters, supplied to the builder.
-    pub fn build(mut self) -> io::Result<SyslogAppender> {
-        norm_addrs(&mut self.addrs);
-        let writer;
-
-        match self.protocol {
-            SyslogAppenderProtocol::UDP => {
-                writer = udp_writer(self.addrs.as_str());
-            }
-            SyslogAppenderProtocol::TCP => {
-                writer = tcp_writer(self.addrs.as_str());
-            }
+    pub fn build(mut self) -> std::io::Result<SyslogAppender> {
+        // norm_addrs(&mut self.addrs);
+        if self.addrs.find(':').is_none() {
+            self.addrs.push(':');
+            self.addrs.push_str(&DEFAULT_PORT.to_string())
         }
+        let (tx, rx) = sync_channel(12);
+        let mut conn = TcpStream::connect(&self.addrs)?;
+
+        std::thread::spawn(move || loop {
+            let v: Vec<u8> = rx.recv().unwrap();
+            // TODO: fix later
+            if let Err(e) = conn.write(&v) {
+                drop(e);
+            };
+        });
 
         let appender = SyslogAppender {
-            writer,
+            addr: self.addrs,
+            writer: tx,
             msg_format: self.msg_format,
-            max_len: self.max_len,
-            protocol: self.protocol,
-            encoder: self.encoder,
         };
 
         Ok(appender)
     }
-}
-
-/// Normalizes network address -- adds port if necessary
-fn norm_addrs(addrs: &mut String) {
-    if !addrs.find(':').is_some() {
-        addrs.push(':');
-        addrs.push_str(&DEFAULT_PORT.to_string())
-    }
-}
-
-/// Creates writer for UDP protocol based on external host and port
-fn udp_writer<T: ToSocketAddrs>(rem: T) -> SyslogWriter {
-    let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-    let rem_addrs = rem.to_socket_addrs().unwrap().next().unwrap();
-    SyslogWriter::Udp(socket, rem_addrs)
-}
-
-/// Creates writer for TCP protocol based on external host and port
-fn tcp_writer<T: ToSocketAddrs>(rem: T) -> SyslogWriter {
-    let stream = TcpStream::connect(rem).unwrap();
-    SyslogWriter::Tcp(Mutex::new(stream))
 }
