@@ -5,6 +5,7 @@ use std::error::Error;
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::mpsc::{sync_channel, SyncSender};
+use std::sync::Arc;
 
 pub mod consts;
 pub mod plain;
@@ -73,7 +74,7 @@ impl SyslogAppenderBuilder {
     pub fn new() -> SyslogAppenderBuilder {
         SyslogAppenderBuilder {
             addrs: DEFAULT_ADDRESS.to_string(),
-            msg_format: MessageFormat::Plain(plain::Format(Box::new(
+            msg_format: MessageFormat::Plain(plain::Format(Arc::new(
                 log4rs::encode::pattern::PatternEncoder::default(),
             ))),
         }
@@ -105,13 +106,12 @@ impl SyslogAppenderBuilder {
         let (tx, rx) = sync_channel(12);
         let mut conn = TcpStream::connect(&self.addrs)?;
 
-        std::thread::spawn(move ||{
-            loop {
-                let v: Vec<u8> = rx.recv().unwrap();
-                if let Err(e) = conn.write(&v){
-                    drop(e);
-                };
-            }
+        std::thread::spawn(move || loop {
+            let v: Vec<u8> = rx.recv().unwrap();
+            // TODO: fix later
+            if let Err(e) = conn.write(&v) {
+                drop(e);
+            };
         });
 
         let appender = SyslogAppender {
