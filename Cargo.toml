@@ -1,9 +1,9 @@
 [package]
 name = "log4rs-syslog-net"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Rafael Aggeler <r.aggeler@gmx.net>"]
 license = "MIT"
-description = "TCP/UDP syslog appender for log4rs"
+description = "TCP syslog appender for log4rs"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
