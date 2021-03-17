@@ -73,7 +73,7 @@ impl log4rs::encode::Encode for Format {
         let msg = std::str::from_utf8(&buf).unwrap();
 
         let msg = format!(
-            "<{}>{} {} {} {} {} {} {}{}\n",
+            "<{}>{} {} {} {} {} {} {} {}\n",
             priority,
             1,
             chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, false),
@@ -85,7 +85,9 @@ impl log4rs::encode::Encode for Format {
             msg
         );
 
-        w.write_all(msg.as_bytes())?;
+        let rfc_5425 = format!("{} {}", msg.as_bytes().len(), msg);
+
+        w.write_all(rfc_5425.as_bytes())?;
         Ok(())
     }
 }

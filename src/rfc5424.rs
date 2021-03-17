@@ -71,7 +71,7 @@ impl log4rs::encode::Encode for Format {
         let msg = String::from_utf8_lossy(&buf);
 
         let msg = format!(
-            "<{}>{} {} {} {} {} {} {}{}\n",
+            "<{}>{} {} {} {} {} {} {} {}\n",
             priority,
             1,
             chrono::Utc::now(),
@@ -82,6 +82,7 @@ impl log4rs::encode::Encode for Format {
             struct_data,
             msg
         );
+
         w.write_all(msg.as_bytes())?;
 
         Ok(())
