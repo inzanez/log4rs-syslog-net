@@ -1,6 +1,6 @@
 [package]
 name = "log4rs-syslog-net"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Rafael Aggeler <r.aggeler@gmx.net>"]
 license = "MIT"
 description = "TCP syslog appender for log4rs"
