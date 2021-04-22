@@ -104,12 +104,32 @@ impl SyslogAppenderBuilder {
             self.addrs.push_str(&DEFAULT_PORT.to_string())
         }
         let (tx, rx) = sync_channel(12);
-        let mut conn = TcpStream::connect(&self.addrs)?;
 
-        std::thread::spawn(move || loop {
+        let mut conn = TcpStream::connect(&self.addrs)?;
+        let addrs = self.addrs.clone();
+
+        std::thread::spawn(move || 'outer: loop {
             let v: Vec<u8> = rx.recv().unwrap();
+
             // TODO: fix later
-            if let Err(e) = conn.write(&v) {
+            if let Err(e) = conn.write_all(&v) {
+                match e.kind() {
+                    std::io::ErrorKind::BrokenPipe => {
+                        'inner: loop {
+                            let new_conn = TcpStream::connect(&addrs);
+
+                            if let Ok(new_conn) = new_conn {
+                                conn = new_conn;
+                                conn.write_all(&v);
+                                conn.flush();
+                                break 'inner;
+                            } else {
+                                std::thread::sleep(std::time::Duration::from_secs(60));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
                 drop(e);
             };
         });
