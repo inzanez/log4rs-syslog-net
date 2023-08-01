@@ -2,7 +2,6 @@ use crate::consts::{level_to_severity, Facility};
 use log::Record;
 use log4rs::encode::writer::simple::SimpleWriter;
 use log4rs::encode::Encode;
-use std::error::Error;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -26,7 +25,7 @@ impl log4rs::encode::Encode for Format {
         &self,
         w: &mut dyn log4rs::encode::Write,
         record: &Record<'_>,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    ) -> Result<(), anyhow::Error> {
         let mut buf: Vec<u8> = Vec::new();
         self.0.encode(&mut SimpleWriter(&mut buf), record)?;
         let msg = String::from_utf8_lossy(&buf);
