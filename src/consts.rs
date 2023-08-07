@@ -1,12 +1,15 @@
 //! Common syslog constants.
 
 use log::Level;
+#[cfg(feature = "config_parsing")]
+use serde::Deserialize;
 use std::io;
 
 /// The syslog `NILVALUE` constant.
 pub const NILVALUE: &str = "-";
 
 /// Facilities according to RFC 5424
+#[cfg_attr(feature = "config_parsing", derive(Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub enum Facility {
     /// Kernel messages

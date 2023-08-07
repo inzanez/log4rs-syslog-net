@@ -13,3 +13,9 @@ anyhow = "1.0.72"
 chrono = { version = "0.4.15", features = ["serde"] }
 log = "0.4.11"
 log4rs = { version = "1.2", default_features = false, features = ["simple_writer", "pattern_encoder"] }
+serde = { version = "1.0", default_features = false, optional = true }
+serde_derive = { version = "1.0", default_features = false, optional = true }
+
+[features]
+default = ["config_parsing"]
+config_parsing = ["log4rs/config_parsing", "serde", "serde_derive"]

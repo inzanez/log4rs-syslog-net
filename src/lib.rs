@@ -13,6 +13,12 @@ pub mod rfc5425;
 const DEFAULT_PORT: u16 = 514;
 const DEFAULT_ADDRESS: &str = "localhost:514";
 
+#[cfg(feature = "config_parsing")]
+mod config;
+
+#[cfg(feature = "config_parsing")]
+pub use crate::config::*;
+
 /// Syslog message format.
 #[derive(Debug)]
 pub enum MessageFormat {
