@@ -4,7 +4,6 @@ use log4rs::encode::Encode;
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::mpsc::{sync_channel, SyncSender};
-use std::sync::Arc;
 
 pub mod consts;
 pub mod plain;
@@ -73,7 +72,7 @@ impl SyslogAppenderBuilder {
     pub fn new() -> SyslogAppenderBuilder {
         SyslogAppenderBuilder {
             addrs: DEFAULT_ADDRESS.to_string(),
-            msg_format: MessageFormat::Plain(plain::Format(Arc::new(
+            msg_format: MessageFormat::Plain(plain::Format(Box::new(
                 log4rs::encode::pattern::PatternEncoder::default(),
             ))),
         }

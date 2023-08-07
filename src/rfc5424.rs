@@ -2,15 +2,14 @@ use crate::consts::{level_to_severity, Facility, NILVALUE};
 use log::Record;
 use log4rs::encode::writer::simple::SimpleWriter;
 use log4rs::encode::Encode;
-use std::sync::Arc;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Format {
     facility: Facility,
     hostname: String,
     app_name: String,
     proc_id: String,
-    encoder: std::sync::Arc<dyn log4rs::encode::Encode>,
+    encoder: Box<dyn log4rs::encode::Encode>,
 }
 
 impl Default for Format {
@@ -26,7 +25,7 @@ impl Format {
             hostname: "".to_string(),
             app_name: "".to_string(),
             proc_id: format!("{}", std::process::id()),
-            encoder: Arc::new(log4rs::encode::pattern::PatternEncoder::default()),
+            encoder: Box::new(log4rs::encode::pattern::PatternEncoder::default()),
         }
     }
 
@@ -39,8 +38,8 @@ impl Format {
         self.hostname = hostname.into();
         self
     }
-    pub fn encoder<E: Encode>(mut self, encoder: E) -> Self {
-        self.encoder = Arc::new(encoder) as Arc<dyn Encode + 'static>;
+    pub fn encoder(mut self, encoder: Box<dyn Encode>) -> Self {
+        self.encoder = encoder;
         self
     }
 
