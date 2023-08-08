@@ -2,21 +2,19 @@ use crate::consts::{level_to_severity, Facility};
 use log::Record;
 use log4rs::encode::writer::simple::SimpleWriter;
 use log4rs::encode::Encode;
-use std::error::Error;
-use std::sync::Arc;
 
-#[derive(Clone, Debug)]
-pub struct Format(pub Arc<dyn Encode>);
+#[derive(Debug)]
+pub struct Format(pub Box<dyn Encode>);
 
 impl Default for Format {
     fn default() -> Self {
-        Format(Arc::new(log4rs::encode::pattern::PatternEncoder::default()))
+        Format(Box::new(log4rs::encode::pattern::PatternEncoder::default()))
     }
 }
 
 impl Format {
-    pub fn encoder<E: Encode>(mut self, encoder: E) -> Self {
-        self.0 = Arc::new(encoder) as Arc<dyn Encode + 'static>;
+    pub fn encoder(mut self, encoder: Box<dyn Encode>) -> Self {
+        self.0 = encoder;
         self
     }
 }
@@ -26,7 +24,7 @@ impl log4rs::encode::Encode for Format {
         &self,
         w: &mut dyn log4rs::encode::Write,
         record: &Record<'_>,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    ) -> Result<(), anyhow::Error> {
         let mut buf: Vec<u8> = Vec::new();
         self.0.encode(&mut SimpleWriter(&mut buf), record)?;
         let msg = String::from_utf8_lossy(&buf);
