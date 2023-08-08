@@ -3,7 +3,6 @@ use chrono::SecondsFormat;
 use log::Record;
 use log4rs::encode::writer::simple::SimpleWriter;
 use log4rs::encode::Encode;
-use std::error::Error;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -63,7 +62,7 @@ impl log4rs::encode::Encode for Format {
         &self,
         w: &mut dyn log4rs::encode::Write,
         record: &Record<'_>,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    ) -> Result<(), anyhow::Error> {
         let priority = self.facility as u8 | level_to_severity(record.level());
         let msg_id = 0;
         let struct_data = NILVALUE;

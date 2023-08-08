@@ -1,7 +1,6 @@
 use log::Record;
 use log4rs::append::Append;
 use log4rs::encode::Encode;
-use std::error::Error;
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::mpsc::{sync_channel, SyncSender};
@@ -31,7 +30,7 @@ impl MessageFormat {
         &self,
         w: &mut dyn std::io::Write,
         rec: &Record<'_>,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    ) -> Result<(), anyhow::Error> {
         let mut w = log4rs::encode::writer::simple::SimpleWriter(w);
         match self {
             MessageFormat::Plain(fmt) => fmt.encode(&mut w, &rec),
@@ -50,7 +49,7 @@ pub struct SyslogAppender {
 }
 
 impl<'a> Append for SyslogAppender {
-    fn append(&self, record: &Record<'_>) -> Result<(), Box<dyn Error + Sync + Send>> {
+    fn append(&self, record: &Record<'_>) -> anyhow::Result<()> {
         let mut v = vec![];
         // Format the message, which will be different based on the chosen MsgFormat
         self.msg_format.format(&mut v, &record)?;
